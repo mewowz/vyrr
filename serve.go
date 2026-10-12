@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	metricsServer "github.com/mewowz/mourncdn/internal/metrics"
+	metricsServer "github.com/mewowz/vyrr/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

@@ -1,19 +1,19 @@
 services:
-  mourncdn:
+  vyrr:
     build: .
     configs:
-      - source: mourncdn-config
+      - source: vyrr-config
         target: /app/config.yml
     volumes:
-      - mourncdn-data:/app/data
+      - vyrr-data:/app/data
     ports:
       - 9743:9743
     restart: unless-stopped
     stop_grace_period: 70s
 
 configs:
-  mourncdn-config:
+  vyrr-config:
     file: ./config.yml
 
 volumes:
-  mourncdn-data:
+  vyrr-data:

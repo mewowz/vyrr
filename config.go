@@ -6,7 +6,7 @@ import (
 	"os"
 	"reflect"
 
-	"github.com/mewowz/mourncdn/internal/metrics"
+	"github.com/mewowz/vyrr/internal/metrics"
 
 	"github.com/dustin/go-humanize"
 	"github.com/go-viper/mapstructure/v2"

@@ -1,4 +1,4 @@
-module github.com/mewowz/mourncdn
+module github.com/mewowz/vyrr
 
 go 1.25.0
 

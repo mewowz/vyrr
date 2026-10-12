@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	metricsServer "github.com/mewowz/mourncdn/internal/metrics"
+	metricsServer "github.com/mewowz/vyrr/internal/metrics"
 )
 
 type CDNServer struct {

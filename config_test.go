@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/mewowz/mourncdn/internal/metrics"
+	"github.com/mewowz/vyrr/internal/metrics"
 )
 
 func TestLoadConfigFile(t *testing.T) {
