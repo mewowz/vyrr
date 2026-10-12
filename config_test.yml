@@ -23,17 +23,6 @@ upload:
   url-prefix: /assets
   max-upload-size: 2GiB
 
-auth:
-  # Set the issuer's 32-byte Ed25519 public key, encoded as standard padded base64.
-  public-key: ""
-
-token-store:
-  dbdriver: sqlite
-  dbpath: ./data/ts.sql
-  advanced:
-    db-op-timeout: 3s
-    db-cleanup-interval: 60s
-
 metrics:
   address: 127.0.0.1:9884
   endpoint: /metrics

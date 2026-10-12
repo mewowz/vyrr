@@ -24,32 +24,13 @@ func main() {
 
 func run(logger *slog.Logger) error {
 	var workersGroup sync.WaitGroup
+	defer workersGroup.Wait()
 
 	config, err := LoadConfigFile(DefaultConfigFilePath)
 	if err != nil {
 		logger.Error("config", "err", err)
 		return err
 	}
-
-	tokenStore, err := NewTokenStore(
-		config.TokenStoreCfg,
-		logger,
-	)
-	if err != nil {
-		logger.Error("token store", "err", err)
-		return err
-	}
-	defer func() {
-		if err = tokenStore.Close(); err != nil {
-			logger.Error("token store", "err", err)
-		}
-	}()
-	dbCleanupCtx, dbCleanupCancel := context.WithCancel(context.Background())
-	defer workersGroup.Wait()
-	defer dbCleanupCancel()
-	workersGroup.Go(func() {
-		tokenStore.CleanupExpiredTokensWorker(dbCleanupCtx)
-	})
 
 	reg := prometheus.NewRegistry()
 	metrics := metricsServer.NewMetrics(reg)
@@ -70,8 +51,6 @@ func run(logger *slog.Logger) error {
 		config.ServeCfg,
 		config.UploadCfg,
 		config.HTTPCfg,
-		config.AuthCfg,
-		tokenStore,
 		metrics,
 		logger,
 	)
@@ -100,7 +79,6 @@ func run(logger *slog.Logger) error {
 	}
 
 	metricsCancelF()
-	dbCleanupCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

@@ -41,16 +41,6 @@ upload:
   url-prefix: /assets
   max-upload-size: 2GiB
 
-auth:
-  public-key: bXeoO889+s+4tTCGZc8uaFyIe5fuwz9RZNc6W+Keqvo=
-
-token-store:
-  dbdriver: sqlite
-  dbpath: ./custom/tokens.db
-  advanced:
-    db-op-timeout: 750ms
-    db-cleanup-interval: 60s
-
 metrics:
   address: localhost:9885
   endpoint: /custom-metrics
@@ -91,15 +81,6 @@ metrics:
 			WriteTimeout:      15 * time.Second,
 			IdleTimeout:       60 * time.Second,
 		},
-		AuthCfg: authMiddleConfig{
-			PublicKey: "bXeoO889+s+4tTCGZc8uaFyIe5fuwz9RZNc6W+Keqvo=",
-		},
-		TokenStoreCfg: tokenStoreConfig{
-			DBDriver:          "sqlite",
-			DBPath:            "./custom/tokens.db",
-			DBOpTimeout:       750 * time.Millisecond,
-			DBCleanupInterval: 60 * time.Second,
-		},
 		MetricsCfg: metrics.MetricsServerConfig{
 			Addr:                   "localhost:9885",
 			Route:                  "/custom-metrics",
@@ -127,53 +108,6 @@ func TestLoadConfigFileExampleDefaults(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("example config differs from defaults (-want +got):\n%s", diff)
-	}
-}
-
-func TestLoadConfigFileAuthDefaults(t *testing.T) {
-	tests := []struct {
-		name               string
-		configData         string
-		expectedTokenStore tokenStoreConfig
-	}{
-		{
-			"missing auth and token store sections use defaults",
-			"{}\n",
-			tokenStoreConfig{
-				DBDriver:          "sqlite",
-				DBPath:            "./data/ts.sql",
-				DBOpTimeout:       3 * time.Second,
-				DBCleanupInterval: 60 * time.Second,
-			},
-		},
-		{
-			"partial token store config retains remaining defaults",
-			"token-store:\n  dbpath: ./custom/tokens.db\n",
-			tokenStoreConfig{
-				DBDriver:          "sqlite",
-				DBPath:            "./custom/tokens.db",
-				DBOpTimeout:       3 * time.Second,
-				DBCleanupInterval: 60 * time.Second,
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			configPath := filepath.Join(t.TempDir(), "config.yml")
-			if err := os.WriteFile(configPath, []byte(test.configData), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			got, err := LoadConfigFile(configPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.AuthCfg.PublicKey != "" {
-				t.Fatalf("got public key=%q, want empty", got.AuthCfg.PublicKey)
-			}
-			if diff := cmp.Diff(test.expectedTokenStore, got.TokenStoreCfg); diff != "" {
-				t.Errorf("token store config mismatch (-want +got):\n%s", diff)
-			}
-		})
 	}
 }
 

@@ -1,11 +1,7 @@
 package main
 
 import (
-	"crypto/ed25519"
-	"encoding/base64"
 	"log/slog"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,29 +13,7 @@ import (
 func TestNewCDNServer(t *testing.T) {
 	tmpDirPath := t.TempDir()
 	logger := slog.New(slog.DiscardHandler)
-	publicKey, _, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authCfg := authMiddleConfig{
-		PublicKey: base64.StdEncoding.EncodeToString(publicKey),
-	}
-	tokenStore, err := NewTokenStore(
-		tokenStoreConfig{
-			DBDriver:    "sqlite",
-			DBPath:      filepath.Join(tmpDirPath, "ts.db"),
-			DBOpTimeout: 3 * time.Second,
-		},
-		logger,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := tokenStore.Close(); err != nil {
-			t.Errorf("close token store: %v", err)
-		}
-	})
+
 	metrics := metricsServer.NewMetrics(prometheus.NewRegistry())
 
 	t.Run("bad serverCfg propagates error", func(t *testing.T) {
@@ -50,8 +24,6 @@ func TestNewCDNServer(t *testing.T) {
 			serverCfg,
 			localAssetUploaderConfig{},
 			CDNServerConfig{},
-			authCfg,
-			tokenStore,
 			metrics,
 			nil,
 		)
@@ -61,6 +33,8 @@ func TestNewCDNServer(t *testing.T) {
 	})
 
 	t.Run("bad uploadCfg propagates error", func(t *testing.T) {
+		// TODO: remove this guard after auth is re-implemented
+		t.Skip("auth is not implemented, so upload is currently unregistered")
 		serverCfg := localAssetServerConfig{
 			AssetDir:     tmpDirPath,
 			AssetMaxSize: 1024,
@@ -78,75 +52,11 @@ func TestNewCDNServer(t *testing.T) {
 			serverCfg,
 			uploadCfg,
 			CDNServerConfig{},
-			authCfg,
-			tokenStore,
 			metrics,
 			nil,
 		)
 		if err == nil {
 			t.Errorf("got %v, want non-nil", err)
-		}
-	})
-
-	t.Run("auth initialization propagates errors", func(t *testing.T) {
-		serverCfg := localAssetServerConfig{
-			AssetDir:     tmpDirPath,
-			AssetMaxSize: 1024,
-			CacheMaxSize: 4096,
-			TTL:          time.Minute,
-			WriteBufSize: 4096,
-			WriteWindow:  time.Second,
-		}
-		uploadCfg := localAssetUploaderConfig{
-			TmpDirPath:         tmpDirPath,
-			OutputDirPath:      tmpDirPath,
-			URLPrefix:          "/assets",
-			MaxAssetUploadSize: 1024,
-		}
-		cdnCfg := CDNServerConfig{
-			ServeRoute:  "/assets",
-			UploadRoute: "/upload",
-		}
-		tests := []struct {
-			name                string
-			authCfg             authMiddleConfig
-			tokenStore          *TokenStore
-			expectedErrFragment string
-		}{
-			{
-				"bad authCfg",
-				authMiddleConfig{PublicKey: "not-base64"},
-				tokenStore,
-				"initialize auth middleware:",
-			},
-			{
-				"nil token store",
-				authCfg,
-				nil,
-				"initialize auth middleware: nil token store",
-			},
-		}
-		for _, test := range tests {
-			t.Run(test.name, func(t *testing.T) {
-				got, err := NewCDNServer(
-					serverCfg,
-					uploadCfg,
-					cdnCfg,
-					test.authCfg,
-					test.tokenStore,
-					metrics,
-					logger,
-				)
-				if err == nil {
-					t.Fatal("got nil, want non-nil error")
-				}
-				if !strings.Contains(err.Error(), test.expectedErrFragment) {
-					t.Fatalf("got %v, want error containing %q", err, test.expectedErrFragment)
-				}
-				if got != nil {
-					t.Fatalf("got server=%v, want nil", got)
-				}
-			})
 		}
 	})
 
@@ -178,8 +88,6 @@ func TestNewCDNServer(t *testing.T) {
 			serverCfg,
 			uploadCfg,
 			cdnCfg,
-			authCfg,
-			tokenStore,
 			metrics,
 			logger,
 		)

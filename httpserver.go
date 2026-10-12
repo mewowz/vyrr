@@ -33,8 +33,6 @@ func NewCDNServer(
 	serveCfg localAssetServerConfig,
 	uploadCfg localAssetUploaderConfig,
 	cdnCfg CDNServerConfig,
-	authCfg authMiddleConfig,
-	tokenStore *TokenStore,
 	metrics *metricsServer.Metrics,
 	logger *slog.Logger,
 ) (*CDNServer, error) {
@@ -47,15 +45,11 @@ func NewCDNServer(
 		return nil, fmt.Errorf("initialze asset server: %w", err)
 	}
 
-	uploadHandler, err := NewLocalAssetUploader(uploadCfg, logger, metrics)
-	if err != nil {
-		return nil, fmt.Errorf("initialze upload server: %w", err)
-	}
-
-	authMiddle, err := NewAuthMiddleHandler(authCfg, tokenStore, logger)
-	if err != nil {
-		return nil, fmt.Errorf("initialize auth middleware: %w", err)
-	}
+	// TODO: re-register uploadHandler after auth is implemented again
+	//uploadHandler, err := NewLocalAssetUploader(uploadCfg, logger, metrics)
+	//if err != nil {
+	//	return nil, fmt.Errorf("initialze upload server: %w", err)
+	//}
 
 	mux := http.NewServeMux()
 	mux.Handle(
@@ -64,12 +58,12 @@ func NewCDNServer(
 		),
 		serveHandler,
 	)
-	mux.Handle(
-		fmt.Sprintf(
-			"POST %s", cdnCfg.UploadRoute,
-		),
-		authMiddle.HTTPAuthenticator(uploadHandler, uploadCfg),
-	)
+	//mux.Handle(
+	//	fmt.Sprintf(
+	//		"POST %s", cdnCfg.UploadRoute,
+	//	),
+	//	uploadHandler,
+	//)
 
 	server := &http.Server{
 		Addr:              cdnCfg.Address,
