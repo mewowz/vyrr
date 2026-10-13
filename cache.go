@@ -173,30 +173,12 @@ func (a *LocalAsset) cacheState() cacheState {
 	}
 }
 
-func (a *LocalAsset) cache(expiresAt time.Time) error {
+func (a *LocalAsset) setCached(data []byte, expiresAt time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.cachedBytes != nil {
-		return nil
-	}
-
-	file, err := os.Open(a.Path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	data := make([]byte, a.FileInfo.Size())
-	_, err = io.ReadFull(file, data)
-	if err != nil {
-		return err
-	}
-
 	a.cachedBytes = data
 	a.expiresAt = expiresAt
-
-	return nil
 }
 
 // Not needed right now
@@ -206,12 +188,14 @@ func (a *LocalAsset) cache(expiresAt time.Time) error {
 //	a.expiresAt = expiresAt
 //}
 
-func (a *LocalAsset) uncache() {
+func (a *LocalAsset) uncache() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	size := len(a.cachedBytes)
 	a.cachedBytes = nil
 	a.expiresAt = time.Time{}
+	return size
 }
 
 func (c *LocalAssetCache) Fetch(fileName string) (*LocalAsset, error) {
@@ -250,7 +234,23 @@ func (c *LocalAssetCache) Cache(fileName string) error {
 		return fmt.Errorf("cache %q: %w", fileName, err)
 	}
 
-	assetSize := asset.FileInfo.Size()
+	if asset.IsCached() {
+		c.metrics.CacheHits.Inc()
+		return nil
+	}
+
+	file, err := os.Open(asset.Path)
+	if err != nil {
+		return fmt.Errorf("cache %q: %w", fileName, err)
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("cache %q: %w", fileName, err)
+	}
+
+	assetSize := fileInfo.Size()
 	if assetSize > c.assetMaxSize {
 		c.metrics.CacheMisses.Inc()
 		return fmt.Errorf(
@@ -262,13 +262,16 @@ func (c *LocalAssetCache) Cache(fileName string) error {
 		)
 	}
 
+	data := make([]byte, fileInfo.Size())
+	_, err = io.ReadFull(file, data)
+	if err != nil {
+		return fmt.Errorf("cache %q: %w", fileName, err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	defer func() { c.metrics.CacheSize.Set(float64(c.cacheSize)) }()
-
 	if asset.IsCached() {
-		c.metrics.CacheHits.Inc()
 		return nil
 	}
 	c.metrics.CacheMisses.Inc()
@@ -292,12 +295,10 @@ func (c *LocalAssetCache) Cache(fileName string) error {
 			c.uncacheAssetLocked(victim)
 		}
 	}
-
-	err = asset.cache(time.Now().Add(c.ttl))
-	if err != nil {
-		return fmt.Errorf("cache %q: %w", fileName, err)
-	}
+	asset.setCached(data, time.Now().Add(c.ttl))
 	c.cacheSize += assetSize
+
+	c.metrics.CacheSize.Set(float64(c.cacheSize))
 
 	return nil
 }
@@ -307,10 +308,8 @@ func (c *LocalAssetCache) uncacheAssetLocked(asset *LocalAsset) {
 		return
 	}
 
-	assetSize := asset.FileInfo.Size()
-
-	asset.uncache()
-	c.cacheSize -= assetSize
+	assetSize := asset.uncache()
+	c.cacheSize -= int64(assetSize)
 }
 
 func (c *LocalAssetCache) findEvictionCandidatesLocked(

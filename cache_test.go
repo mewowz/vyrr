@@ -204,59 +204,6 @@ func TestLocalAsset_Open(t *testing.T) {
 	}
 }
 
-func TestLocalAsset_cache(t *testing.T) {
-	testDirPath := t.TempDir()
-
-	testFileData := []byte{0x02}
-	testFilePath := filepath.Join(testDirPath, "file.jpg")
-	err := os.WriteFile(
-		testFilePath,
-		testFileData,
-		0o777,
-	)
-	if err != nil {
-		t.Fatalf("could not make temp file %q: %v", testFilePath, err)
-	}
-	testFileInfo, err := os.Stat(testFilePath)
-	if err != nil {
-		t.Fatalf("could not stat file %v: %v", testFileInfo, err)
-	}
-
-	asset := &LocalAsset{
-		FileInfo: testFileInfo,
-		Path:     testFilePath,
-	}
-	ttl := time.Now().Add(time.Second)
-	err = asset.cache(ttl)
-	t.Run("error is non-nil", func(t *testing.T) {
-		if err != nil {
-			t.Fatalf("want err=nil, got err=%v", err)
-		}
-	})
-
-	t.Run("IsCached == true", func(t *testing.T) {
-		if cached := asset.IsCached(); !cached {
-			t.Fatalf("want asset.IsCached()=true, got asset.IsCached()=%v", cached)
-		}
-	})
-
-	t.Run("cachedBytes == testFileData", func(t *testing.T) {
-		if !bytes.Equal(asset.cachedBytes, testFileData) {
-			t.Fatalf(
-				"asset.cachedBytes=%v != testFileData=%v",
-				asset.cachedBytes,
-				testFileData,
-			)
-		}
-	})
-
-	t.Run("ttl properly set", func(t *testing.T) {
-		if expiresAt := asset.expiresAt; expiresAt != ttl {
-			t.Fatalf("asset.expiresAt=%v != ttl=%v", asset.expiresAt, ttl)
-		}
-	})
-}
-
 func TestLocalAsset_uncache(t *testing.T) {
 	asset := &LocalAsset{
 		cachedBytes: []byte{0x01, 0x02},
@@ -314,11 +261,7 @@ func TestLocalAsset_OpenConcurrent(t *testing.T) {
 	cacheFlipper := func() {
 		for range nFlips {
 			ttl := time.Now().Add(time.Second)
-			err = asset.cache(ttl)
-			if err != nil {
-				t.Errorf("cache: %v", err)
-				return
-			}
+			asset.setCached(testFileData, ttl)
 			asset.uncache()
 		}
 	}
@@ -389,9 +332,9 @@ func TestLocalAssetCache_uncacheAssetLocked(t *testing.T) {
 			asset: &LocalAsset{
 				Path:        testFilePath,
 				FileInfo:    testFileInfo,
-				cachedBytes: []byte{},
+				cachedBytes: testFileData,
 			},
-			initialCacheSize: testFileInfo.Size(),
+			initialCacheSize: int64(len(testFileData)),
 			postCacheSize:    0,
 		},
 	}

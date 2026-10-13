@@ -371,9 +371,7 @@ func TestLocalAssetServer_writeAssetToClient(t *testing.T) {
 			}
 
 			if test.cacheAsset {
-				if err = asset.cache(time.Now().Add(time.Hour)); err != nil {
-					t.Fatal(err)
-				}
+				asset.setCached(test.fileData, time.Now().Add(time.Hour))
 			}
 			assetReader, err := asset.Open()
 			if err != nil {
