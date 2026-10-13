@@ -21,16 +21,16 @@ func main() {
 	context.AfterFunc(ctx, stop)
 
 	logger := slog.Default()
-	if err := run(ctx, logger); err != nil {
+	if err := run(ctx, DefaultConfigFilePath, logger); err != nil {
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, logger *slog.Logger) error {
+func run(ctx context.Context, configPath string, logger *slog.Logger) error {
 	var workersGroup sync.WaitGroup
 	defer workersGroup.Wait()
 
-	config, err := LoadConfigFile(DefaultConfigFilePath)
+	config, err := LoadConfigFile(configPath)
 	if err != nil {
 		logger.Error("config", "err", err)
 		return err
