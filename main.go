@@ -16,13 +16,17 @@ import (
 const DefaultConfigFilePath = "./config.yml"
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	context.AfterFunc(ctx, stop)
+
 	logger := slog.Default()
-	if err := run(logger); err != nil {
+	if err := run(ctx, logger); err != nil {
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
+func run(ctx context.Context, logger *slog.Logger) error {
 	var workersGroup sync.WaitGroup
 	defer workersGroup.Wait()
 
@@ -59,9 +63,6 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
 	logger.Info("starting server", "address", config.HTTPCfg.Address)
 	errCh := make(chan error, 1)
 	workersGroup.Go(func() {
@@ -74,16 +75,16 @@ func run(logger *slog.Logger) error {
 			logger.Error("server", "err", err)
 		}
 		return err
-	case <-c:
+	case <-ctx.Done():
 		logger.Info("shutting down server gracefully")
 	}
 
 	metricsCancelF()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := server.ShutdownGracefully(ctx); err != nil {
+	if err := server.ShutdownGracefully(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
 
 		if err := server.ForceCloseServer(); err != nil {
