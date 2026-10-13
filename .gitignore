@@ -34,3 +34,5 @@ go.work.sum
 # Build output
 /vyrr
 
+# data
+/data
