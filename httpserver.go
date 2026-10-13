@@ -42,13 +42,13 @@ func NewCDNServer(
 	}
 	serveHandler, err := NewLocalAssetServer(serveCfg, logger, metrics)
 	if err != nil {
-		return nil, fmt.Errorf("initialze asset server: %w", err)
+		return nil, fmt.Errorf("initialize asset server: %w", err)
 	}
 
 	// TODO: re-register uploadHandler after auth is implemented again
 	//uploadHandler, err := NewLocalAssetUploader(uploadCfg, logger, metrics)
 	//if err != nil {
-	//	return nil, fmt.Errorf("initialze upload server: %w", err)
+	//	return nil, fmt.Errorf("initialize upload server: %w", err)
 	//}
 
 	mux := http.NewServeMux()
