@@ -113,7 +113,7 @@ func (s *LocalAssetServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.handleCacheAndFetchErr(err, assetID, sw, r)
 			return
 		}
-		assetReader, err := asset.Open()
+		assetReader, assetSize, err := asset.Open()
 		if err != nil {
 			s.handleCacheAndFetchErr(err, assetID, sw, r)
 			return
@@ -130,7 +130,7 @@ func (s *LocalAssetServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if n > 0 {
 			sw.Header().Set("Content-Type", http.DetectContentType(prefix[:n]))
 		}
-		sw.Header().Set("Content-Length", strconv.FormatInt(asset.FileInfo.Size(), 10))
+		sw.Header().Set("Content-Length", strconv.FormatInt(assetSize, 10))
 		sw.WriteHeader(http.StatusOK)
 		return
 	}
@@ -141,14 +141,14 @@ func (s *LocalAssetServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	assetReader, err := asset.Open()
+	assetReader, assetSize, err := asset.Open()
 	if err != nil {
 		s.handleCacheAndFetchErr(err, assetID, sw, r)
 		return
 	}
 	defer assetReader.Close()
 
-	sw.Header().Set("Content-Length", strconv.FormatInt(asset.FileInfo.Size(), 10))
+	sw.Header().Set("Content-Length", strconv.FormatInt(assetSize, 10))
 	err = s.writeAssetToClient(assetReader, sw, r)
 	if err != nil {
 		s.handleWriteAssetToClientError(assetID, r, err)

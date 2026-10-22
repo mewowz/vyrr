@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,9 +41,8 @@ type LocalAssetCache struct {
 }
 
 type LocalAsset struct {
-	FileInfo fs.FileInfo
-	Path     string
-	Hash     string
+	Path string
+	Hash string
 
 	cachedBytes []byte
 	expiresAt   time.Time
@@ -53,8 +51,9 @@ type LocalAsset struct {
 }
 
 type cacheState struct {
-	Cached    bool
-	ExpiresAt time.Time
+	Cached      bool
+	CachedBytes int64
+	ExpiresAt   time.Time
 }
 
 func NewLocalAssetCache(
@@ -133,23 +132,31 @@ func NewLocalAsset(path string) (*LocalAsset, error) {
 	)
 
 	return &LocalAsset{
-		FileInfo: assetInfo,
-		Path:     path,
-		Hash:     hashString,
+		Path: path,
+		Hash: hashString,
 	}, nil
 }
 
-func (a *LocalAsset) Open() (io.ReadCloser, error) {
+func (a *LocalAsset) Open() (io.ReadCloser, int64, error) {
 	a.mu.RLock()
 	cachedBytes := a.cachedBytes
 	a.mu.RUnlock()
 
 	if cachedBytes != nil {
 		r := bytes.NewReader(cachedBytes)
-		return io.NopCloser(r), nil
-	} else {
-		return os.Open(a.Path)
+		return io.NopCloser(r), int64(len(cachedBytes)), nil
 	}
+
+	f, err := os.Open(a.Path)
+	if err != nil {
+		return nil, 0, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, 0, err
+	}
+	return f, info.Size(), nil
 }
 
 func (a *LocalAsset) IsCached() bool {
@@ -168,8 +175,9 @@ func (a *LocalAsset) cacheState() cacheState {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return cacheState{
-		Cached:    a.cachedBytes != nil,
-		ExpiresAt: a.expiresAt,
+		Cached:      a.cachedBytes != nil,
+		CachedBytes: int64(len(a.cachedBytes)),
+		ExpiresAt:   a.expiresAt,
 	}
 }
 
@@ -342,7 +350,7 @@ func (c *LocalAssetCache) findEvictionCandidatesLocked(
 	var victims []*LocalAsset
 	var totalVictimBytes int64
 	for _, victim := range candidates {
-		totalVictimBytes += victim.FileInfo.Size()
+		totalVictimBytes += victim.cacheState().CachedBytes
 		victims = append(victims, victim)
 		if totalVictimBytes >= bytesNeeded {
 			return victims

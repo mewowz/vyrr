@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -150,10 +151,20 @@ func TestNewLocalAsset(t *testing.T) {
 
 func TestLocalAsset_Open(t *testing.T) {
 	testDirPath := t.TempDir()
+	seed := int64(123)
+	source := rand.NewSource(seed)
+	r := rand.New(source)
 
-	testFileData := []byte{0x02}
+	testFileData := make([]byte, 128)
+	n, err := r.Read(testFileData)
+	if err != nil {
+		t.Fatalf("rand: %v", err)
+	}
+	if n != len(testFileData) {
+		t.Fatalf("read bytes n=%v != len(testFileBytes)=%v", n, len(testFileData))
+	}
 	testFilePath := filepath.Join(testDirPath, "file.jpg")
-	err := os.WriteFile(
+	err = os.WriteFile(
 		testFilePath,
 		testFileData,
 		0o777,
@@ -166,6 +177,7 @@ func TestLocalAsset_Open(t *testing.T) {
 		name         string
 		localAsset   *LocalAsset
 		expectedData []byte
+		expectedSize int64
 		expectedErr  error
 	}{
 		{
@@ -174,6 +186,7 @@ func TestLocalAsset_Open(t *testing.T) {
 				cachedBytes: []byte{0x01},
 			},
 			expectedData: []byte{0x01},
+			expectedSize: 1,
 			expectedErr:  nil,
 		},
 		{
@@ -182,14 +195,27 @@ func TestLocalAsset_Open(t *testing.T) {
 				Path: testFilePath,
 			},
 			expectedData: testFileData,
+			expectedSize: int64(len(testFileData)),
 			expectedErr:  nil,
+		},
+		{
+			name: "error on non-existant file",
+			localAsset: &LocalAsset{
+				Path: filepath.Join(testDirPath, "nonexistant"),
+			},
+			expectedData: nil,
+			expectedSize: 0,
+			expectedErr:  os.ErrNotExist,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			r, err := test.localAsset.Open()
+			r, size, err := test.localAsset.Open()
 			if !errors.Is(err, test.expectedErr) {
-				t.Errorf("got %v, want %v", err, test.expectedErr)
+				t.Fatalf("got %v, want %v", err, test.expectedErr)
+			}
+			if test.expectedErr != nil {
+				return
 			}
 			defer r.Close()
 
@@ -198,7 +224,10 @@ func TestLocalAsset_Open(t *testing.T) {
 				t.Fatalf("cannot read from reader: %v", err)
 			}
 			if !bytes.Equal(data, test.expectedData) {
-				t.Errorf("data=%v != expectedData=%v", data, test.expectedData)
+				t.Fatalf("data=%v != expectedData=%v", data, test.expectedData)
+			}
+			if size != test.expectedSize {
+				t.Fatalf("size=%v != expectedSize=%v", size, test.expectedSize)
 			}
 		})
 	}
@@ -268,7 +297,7 @@ func TestLocalAsset_OpenConcurrent(t *testing.T) {
 
 	nReaders := 1234
 	cacheReader := func() {
-		r, err := asset.Open()
+		r, _, err := asset.Open()
 		if err != nil {
 			t.Errorf("asset Open(): %v", err)
 			return
@@ -307,10 +336,6 @@ func TestLocalAssetCache_uncacheAssetLocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not make temp file %q: %v", testFilePath, err)
 	}
-	testFileInfo, err := os.Stat(testFilePath)
-	if err != nil {
-		t.Fatalf("could not stat file %v: %v", testFileInfo, err)
-	}
 
 	tests := []struct {
 		name             string
@@ -321,8 +346,7 @@ func TestLocalAssetCache_uncacheAssetLocked(t *testing.T) {
 		{
 			name: "uncache uncached asset",
 			asset: &LocalAsset{
-				Path:     testFilePath,
-				FileInfo: testFileInfo,
+				Path: testFilePath,
 			},
 			initialCacheSize: 0,
 			postCacheSize:    0,
@@ -331,7 +355,6 @@ func TestLocalAssetCache_uncacheAssetLocked(t *testing.T) {
 			name: "uncache cached asset",
 			asset: &LocalAsset{
 				Path:        testFilePath,
-				FileInfo:    testFileInfo,
 				cachedBytes: testFileData,
 			},
 			initialCacheSize: int64(len(testFileData)),
@@ -387,38 +410,32 @@ func TestLocalAssetCache_Fetch(t *testing.T) {
 		t.Fatalf("could not make temp file %q: %v", testFilePath2, err)
 	}
 
-	testFileInfo1, err := os.Stat(testFilePath1)
-	if err != nil {
-		t.Fatalf("could not stat file %v: %v", testFileInfo1, err)
-	}
-	testFileInfo2, err := os.Stat(testFilePath2)
-	if err != nil {
-		t.Fatalf("could not stat file %v: %v", testFileInfo2, err)
-	}
-
 	knownAsset := &LocalAsset{
-		Path:     testFilePath1,
-		FileInfo: testFileInfo1,
+		Path: testFilePath1,
+		Hash: "abcd",
 	}
 	unknownAsset := &LocalAsset{
-		Path:     testFilePath2,
-		FileInfo: testFileInfo2,
+		Path: testFilePath2,
+		Hash: "bcdf",
 	}
 
 	tests := []struct {
-		name      string
-		fileName  string
-		wantAsset *LocalAsset
+		name        string
+		fileName    string
+		wantAsset   *LocalAsset
+		wantSamePtr bool
 	}{
 		{
 			"fetch known asset",
 			testFileName1,
 			knownAsset,
+			true,
 		},
 		{
 			"fetch unknown asset",
 			testFileName2,
 			unknownAsset,
+			false,
 		},
 	}
 
@@ -439,12 +456,15 @@ func TestLocalAssetCache_Fetch(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			asset, err := cache.Fetch(test.fileName)
 			if err != nil {
-				t.Errorf("got err=%v, want err=nil", err)
+				t.Fatalf("got err=%v, want err=nil", err)
+			}
+
+			if test.wantSamePtr && asset != test.wantAsset {
+				t.Errorf("got asset=%p, want existing asset %p", asset, test.wantAsset)
 			}
 
 			if asset.Path != test.wantAsset.Path ||
-				asset.FileInfo.Name() != test.wantAsset.FileInfo.Name() ||
-				asset.FileInfo.Size() != test.wantAsset.FileInfo.Size() {
+				asset.Hash != test.wantAsset.Hash {
 				t.Errorf("got asset=%v, want %v", asset, test.wantAsset)
 			}
 		})
@@ -455,28 +475,22 @@ func TestLocalAssetCache_findEvictionCandidatesLocked(t *testing.T) {
 	now := time.Now()
 
 	oldest := &LocalAsset{
-		FileInfo:    &MockFileInfo{size: 1},
 		cachedBytes: []byte{0x00},
 		expiresAt:   now.Add(-30 * time.Second),
 	}
 	middle := &LocalAsset{
-		FileInfo:    &MockFileInfo{size: 2},
 		cachedBytes: []byte{0x00, 0x01},
 		expiresAt:   now.Add(-20 * time.Second),
 	}
 	newest := &LocalAsset{
-		FileInfo:    &MockFileInfo{size: 4},
 		cachedBytes: []byte{0x00, 0x01, 0x02, 0x03},
 		expiresAt:   now.Add(-10 * time.Second),
 	}
 	unexpired := &LocalAsset{
-		FileInfo:    &MockFileInfo{size: 100},
 		cachedBytes: []byte{0x00},
 		expiresAt:   now.Add(10 * time.Second),
 	}
-	uncached := &LocalAsset{
-		FileInfo: &MockFileInfo{size: 100},
-	}
+	uncached := &LocalAsset{}
 
 	allAssets := map[string]*LocalAsset{
 		"oldest":    oldest,
@@ -612,11 +626,6 @@ func TestLocalAssetCache_Cache(t *testing.T) {
 		t.Fatalf("could not make temp file %q: %v", testFilePath2, err)
 	}
 
-	testFileInfo1, err := os.Stat(testFilePath1)
-	if err != nil {
-		t.Fatalf("could not stat file %v: %v", testFileInfo1, err)
-	}
-
 	tests := []struct {
 		name                  string
 		fileName              string
@@ -653,7 +662,6 @@ func TestLocalAssetCache_Cache(t *testing.T) {
 			assetMaxSize: 2,
 			cacheMaxSize: 2,
 			initialAsset: &LocalAsset{
-				FileInfo:    testFileInfo1,
 				Path:        testFilePath1,
 				cachedBytes: testFileData,
 				expiresAt:   time.Now().Add(time.Second),
@@ -670,7 +678,6 @@ func TestLocalAssetCache_Cache(t *testing.T) {
 			assetMaxSize: 2,
 			cacheMaxSize: 2,
 			initialAsset: &LocalAsset{
-				FileInfo:    testFileInfo1,
 				Path:        testFilePath1,
 				cachedBytes: testFileData,
 				expiresAt:   time.Now().Add(-time.Second),
@@ -687,7 +694,6 @@ func TestLocalAssetCache_Cache(t *testing.T) {
 			assetMaxSize: 2,
 			cacheMaxSize: 4,
 			initialAsset: &LocalAsset{
-				FileInfo:    testFileInfo1,
 				Path:        testFilePath1,
 				cachedBytes: testFileData,
 				expiresAt:   time.Now().Add(time.Second),

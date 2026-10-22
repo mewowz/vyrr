@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -373,7 +374,7 @@ func TestLocalAssetServer_writeAssetToClient(t *testing.T) {
 			if test.cacheAsset {
 				asset.setCached(test.fileData, time.Now().Add(time.Hour))
 			}
-			assetReader, err := asset.Open()
+			assetReader, _, err := asset.Open()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -490,4 +491,71 @@ func TestLocalAssetServer_handleCachAndFetchErr(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLocalAssetServer_ContentLengthInferredFromFileDescriptor(t *testing.T) {
+	testDirPath := t.TempDir()
+
+	metrics := metricsServer.NewMetrics(prometheus.NewRegistry())
+	server, err := NewLocalAssetServer(
+		localAssetServerConfig{
+			AssetDir:     testDirPath,
+			AssetMaxSize: 1 << 20, // 1 MiB
+			CacheMaxSize: 1 << 20,
+			TTL:          time.Hour,
+			WriteBufSize: 4096,
+			WriteWindow:  time.Second,
+		},
+		nil,
+		metrics,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("method HEAD", func(t *testing.T) {
+		path := filepath.Join(testDirPath, "abcd.jpg")
+		data := []byte{0x0}
+		err := os.WriteFile(
+			path,
+			data,
+			0o777,
+		)
+		if err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		_, err = server.cache.Fetch("abcd.jpg")
+		if err != nil {
+			t.Fatalf("fetch: %v", err)
+		}
+
+		data = []byte{0x0, 0x0, 0x0}
+		err = os.WriteFile(
+			path,
+			data,
+			0o777,
+		)
+		if err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		expectedSize := len(data)
+
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodHead, "/abcd.jpg", nil)
+		request.SetPathValue("id", "abcd.jpg")
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("want recorder.Code=%v, got %v", http.StatusOK, recorder.Code)
+		}
+
+		contentLen, err := strconv.Atoi(recorder.Header().Get("Content-Length"))
+		if err != nil {
+			t.Fatalf("atoi: %v", err)
+		}
+		if contentLen != expectedSize {
+			t.Fatalf("contentLen=%v != newSize=%v", contentLen, expectedSize)
+		}
+	})
 }
